@@ -17,26 +17,6 @@ app.get("/", async (req, res) => {
   res.json({ time: result.rows[0].now });
 });
 
-// Example: create a table
-app.get("/init", async (req, res) => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS messages (
-    id SERIAL PRIMARY KEY,
-    text VARCHAR(255)
-  )`);
-  res.send("Table created!");
-});
-
-// Example: insert + fetch
-app.post("/message", async (req, res) => {
-  const { text } = req.body;
-  await pool.query("INSERT INTO messages (text) VALUES ($1)", [text]);
-  res.send("Message saved!");
-});
-
-app.get("/messages", async (req, res) => {
-  const result = await pool.query("SELECT * FROM messages");
-  res.json(result.rows);
-});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
