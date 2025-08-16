@@ -6,6 +6,14 @@ const { clerkMiddleware, requireAuth } = require("@clerk/express");
 const app = express();
 app.use(express.json());
 app.use(clerkMiddleware());
+const cors = require("cors");
+
+// Allow requests from your React frontend
+app.use(cors({
+  origin: ["http://localhost:3000"], // or your deployed frontend URL
+  methods: ["GET", "POST"],
+  credentials: true,
+}));
 
 
 // PostgreSQL connection pool
