@@ -10,9 +10,12 @@ const cors = require("cors");
 
 // Allow requests from your React frontend
 app.use(cors({
-  origin: ["http://localhost:3000"], // or your deployed frontend URL
+  origin: [
+    "http://localhost:3000",                      // local development
+    "https://sdp-frontend-production.up.railway.app" // deployed frontend
+  ],
   methods: ["GET", "POST"],
-  credentials: true,
+  credentials: true, // allow cookies/auth headers
 }));
 
 
