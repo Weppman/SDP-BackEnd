@@ -1,9 +1,12 @@
 require("dotenv").config();
 const express = require("express");
 const { Pool } = require("pg");
+const { clerkMiddleware, requireAuth } = require("@clerk/express");
 
 const app = express();
 app.use(express.json());
+app.use(clerkMiddleware());
+
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -17,6 +20,10 @@ app.get("/", async (req, res) => {
   res.json({ time: result.rows[0].now });
 });
 
+app.get("/protected", requireAuth(), async (req, res) => {
+  const userId = req.auth.userId;
+  res.json({ message: "You are logged in!", userId });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
