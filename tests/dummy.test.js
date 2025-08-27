@@ -9,22 +9,32 @@ describe("Express API", () => {
   beforeAll(async () => {
     let connected = false;
     let attempts = 0;
-    while (!connected && attempts < 10) { // increase attempts
+    const maxAttempts = 20;
+    
+    while (!connected && attempts < maxAttempts) {
       try {
         await pool.query("SELECT 1");
         connected = true;
+        console.log("Connected to database successfully");
       } catch (err) {
         attempts++;
-        console.log(`DB not ready, retrying (${attempts}/10)...`);
-        await new Promise(r => setTimeout(r, 2000)); // 2s delay
+        console.log(`DB not ready, retrying (${attempts}/${maxAttempts})...`);
+        await new Promise(r => setTimeout(r, 1000)); // 1s delay
       }
     }
-    if (!connected) throw new Error("Could not connect to DB");
+    
+    if (!connected) {
+      console.error("Could not connect to DB after", maxAttempts, "attempts");
+      throw new Error("Could not connect to DB");
+    }
   });
+
 
   afterAll(async () => {
     await pool.end();
   });
+
+  
 
   test("GET / should return current time", async () => {
     const res = await request(app).get("/");
