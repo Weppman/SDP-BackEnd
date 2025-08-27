@@ -1,29 +1,28 @@
+jest.setTimeout(30000); // 30 seconds for all tests and hooks
+
 const request = require("supertest");
-const { app, pool } = require("../server"); // Make sure server.js exports both app and pool
+const { app, pool } = require("../server");
 
 describe("Express API", () => {
 
-  // Optional: wait a short time before tests if DB is slow
-beforeAll(async () => {
-  jest.setTimeout(20000); // 20 seconds
-  let connected = false;
-  let attempts = 0;
-  while (!connected && attempts < 5) {
-    try {
-      await pool.query("SELECT 1");
-      connected = true;
-    } catch (err) {
-      attempts++;
-      await new Promise(r => setTimeout(r, 2000)); // wait 2s
+  // Wait for Postgres to be ready
+  beforeAll(async () => {
+    let connected = false;
+    let attempts = 0;
+    while (!connected && attempts < 10) { // increase attempts
+      try {
+        await pool.query("SELECT 1");
+        connected = true;
+      } catch (err) {
+        attempts++;
+        console.log(`DB not ready, retrying (${attempts}/10)...`);
+        await new Promise(r => setTimeout(r, 2000)); // 2s delay
+      }
     }
-  }
-  if (!connected) throw new Error("Could not connect to DB");
-});
-
-
+    if (!connected) throw new Error("Could not connect to DB");
+  });
 
   afterAll(async () => {
-    // Close database connections to prevent Jest open handle warning
     await pool.end();
   });
 
@@ -48,5 +47,4 @@ beforeAll(async () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.rows[0]).toHaveProperty("num", 1);
   });
-
 });
