@@ -6,7 +6,11 @@ const cors = require("cors");
 
 const app = express();
 app.use(express.json());
-app.use(clerkMiddleware());
+
+// Only use Clerk middleware in non-test environments
+if (process.env.NODE_ENV !== 'test') {
+  app.use(clerkMiddleware());
+}
 
 app.use(cors({
   origin: [
@@ -63,6 +67,7 @@ app.post("/query", async (req, res) => {
   }
 });
 
+// This route should still be protected even in test environment
 app.get("/protected", requireAuth(), async (req, res) => {
   const userId = req.auth.userId;
   res.json({ message: "You are logged in!", userId });
