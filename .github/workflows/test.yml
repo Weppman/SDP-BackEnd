@@ -1,26 +1,42 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ '**' ]
+
 jobs:
   test:
     runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:15
+        ports: ["5432:5432"]
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: testdb
-        ports:
-          - 5432:5432
         options: >-
-          --health-cmd "pg_isready"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: 20
-      - run: npm install
-      - run: npm test
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: |
+          echo "Waiting 5s for Postgres to be ready..."
+          sleep 5
+          npm test
         env:
+          NODE_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/testdb
