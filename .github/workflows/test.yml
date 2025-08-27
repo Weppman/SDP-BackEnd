@@ -19,9 +19,9 @@ jobs:
           POSTGRES_DB: testdb
         options: >-
           --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
+          --health-interval=5s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=15
 
     steps:
       - uses: actions/checkout@v3
@@ -33,13 +33,10 @@ jobs:
         run: npm install
 
       - name: Wait for Postgres
-        run: sleep 10
-        
+        run: sleep 15
+
       - name: Run tests
-        run: |
-          echo "Waiting 5s for Postgres to be ready..."
-          sleep 5
-          npm test
+        run: npm test
         env:
           NODE_ENV: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/testdb
