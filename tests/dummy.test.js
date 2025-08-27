@@ -1,40 +1,38 @@
-jest.setTimeout(30000); // 30 seconds for all tests and hooks
+jest.setTimeout(60000); // 60 seconds for all tests
 
 const request = require("supertest");
 const { app, pool } = require("../server");
 
 describe("Express API", () => {
-
-  // Wait for Postgres to be ready
   beforeAll(async () => {
+    console.log("Attempting to connect to database...");
+    
     let connected = false;
     let attempts = 0;
-    const maxAttempts = 20;
+    const maxAttempts = 30;
     
     while (!connected && attempts < maxAttempts) {
       try {
-        await pool.query("SELECT 1");
+        // Try a simple query to check connection
+        const result = await pool.query("SELECT NOW()");
+        console.log("Database connection successful:", result.rows[0]);
         connected = true;
-        console.log("Connected to database successfully");
       } catch (err) {
         attempts++;
-        console.log(`DB not ready, retrying (${attempts}/${maxAttempts})...`);
-        await new Promise(r => setTimeout(r, 1000)); // 1s delay
+        console.log(`Database not ready, retrying (${attempts}/${maxAttempts})... Error:`, err.message);
+        await new Promise(r => setTimeout(r, 2000)); // 2s delay
       }
     }
     
     if (!connected) {
-      console.error("Could not connect to DB after", maxAttempts, "attempts");
-      throw new Error("Could not connect to DB");
+      console.error("Could not connect to database after", maxAttempts, "attempts");
+      throw new Error("Database connection failed");
     }
   });
-
 
   afterAll(async () => {
     await pool.end();
   });
-
-  
 
   test("GET / should return current time", async () => {
     const res = await request(app).get("/");

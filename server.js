@@ -20,7 +20,10 @@ app.use(cors({
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  connectionTimeoutMillis: 10000, // 10 seconds connection timeout
+  idleTimeoutMillis: 30000,
+  max: 10
 });
 
 
