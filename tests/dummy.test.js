@@ -5,6 +5,7 @@ describe("Express API", () => {
 
   // Optional: wait a short time before tests if DB is slow
 beforeAll(async () => {
+  jest.setTimeout(20000); // 20 seconds
   let connected = false;
   let attempts = 0;
   while (!connected && attempts < 5) {
@@ -18,6 +19,7 @@ beforeAll(async () => {
   }
   if (!connected) throw new Error("Could not connect to DB");
 });
+
 
 
   afterAll(async () => {
