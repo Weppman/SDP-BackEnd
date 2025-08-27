@@ -17,21 +17,37 @@ app.use(cors({
   credentials: true,
 }));
 
+// Use test database configuration when in test environment
+const connectionString = process.env.NODE_ENV === 'test' 
+  ? 'postgres://postgres:postgres@localhost:5432/testdb'
+  : process.env.DATABASE_URL;
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: connectionString,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  connectionTimeoutMillis: 10000, // 10 seconds connection timeout
+  connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000,
   max: 10
 });
 
-
-app.get("/", async (req, res) => {
-  const result = await pool.query("SELECT NOW()");
-  res.json({ time: result.rows[0].now });
+// Test database connection on startup
+pool.on('connect', (client) => {
+  console.log('Database connected successfully');
 });
 
+pool.on('error', (err) => {
+  console.error('Database connection error:', err);
+});
+
+app.get("/", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json({ time: result.rows[0].now });
+  } catch (error) {
+    console.error("Database query error:", error);
+    res.status(500).json({ error: "Database connection failed" });
+  }
+});
 
 app.post("/query", async (req, res) => {
   const { sql } = req.body;
@@ -47,15 +63,10 @@ app.post("/query", async (req, res) => {
   }
 });
 
-
-
 app.get("/protected", requireAuth(), async (req, res) => {
   const userId = req.auth.userId;
   res.json({ message: "You are logged in!", userId });
 });
-
-
-
 
 // Only start server if not in test environment
 if (process.env.NODE_ENV !== "test") {
@@ -63,6 +74,4 @@ if (process.env.NODE_ENV !== "test") {
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
-
 module.exports = { app, pool };
-
