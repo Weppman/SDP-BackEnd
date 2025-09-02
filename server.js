@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const { Pool } = require("pg");
 const { clerkMiddleware, requireAuth } = require("@clerk/express");
+const { clerkClient } = require ("@clerk/clerk-sdk-node");
 const cors = require("cors");
 
 const app = express();
@@ -67,13 +68,55 @@ app.post("/query", async (req, res) => {
   }
 });
 
-// This route should still be protected even in test environment
+app.post("/uid", async (req, res) => {
+  const { uidArr } = req.body;
+
+  try {
+    const data = await getUserData(uidArr);
+    res.json({ userDatas: data });
+  } catch (error) {
+    console.error("Error fetching user data:", error);
+    res.status(500).json({ error: "Failed to fetch user data" });
+  }
+});
+
+async function getUserData(uidArr) {
+  const userDatas = {};
+
+  for (let i = 0; i < uidArr.length; i++) {
+    const uid = uidArr[i];
+
+    const { rows } = await pool.query("SELECT authid FROM usertable WHERE userid = $1", [uid]);
+    const authid = rows[0]?.authid;
+
+    console.error("Fetched authid:", authid);
+
+    const user = await clerkClient.users.getUser(authid);
+
+    console.error("Fetched user from Clerk:", user);
+
+    userDatas[uid] = {
+      id: user.id,
+      email: user.primaryEmailAddress?.emailAddress,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      username: user.username,
+      imageUrl: user.imageUrl,
+    };
+  }
+
+  return userDatas;
+}
+
+
+
+
 app.get("/protected", requireAuth(), async (req, res) => {
   const userId = req.auth.userId;
   res.json({ message: "You are logged in!", userId });
 });
 
-// Only start server if not in test environment
+
 if (process.env.NODE_ENV !== "test") {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
