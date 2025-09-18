@@ -270,29 +270,99 @@ app.post("/plan-hike", async (req, res) => {
   }
 });
 
-// Mutual friends (FIXED)
 app.get("/friends/:userId", async (req, res) => {
-  const userId = req.params.userId.toString();
+  const userId = parseInt(req.params.userId, 10);
+
   try {
-    const followRes = await pool.query("SELECT userid2 FROM follow_table WHERE userid1 = $1", [userId]);
-    const followingIdsText = followRes.rows.map(r => r.userid2.toString());
-    if (!followingIdsText.length) return res.json({ friends: [] });
+    const mutualRes = await pool.query(
+      `
+      SELECT f1."userID2" AS mutualid
+      FROM follow_table f1
+      JOIN follow_table f2 
+        ON f1."userID2" = f2."userID1" 
+       AND f2."userID2" = $1
+      WHERE f1."userID1" = $1
+      `,
+      [userId]
+    );
 
-    const mutualRes = await pool.query(`
-      SELECT u.userid
-      FROM usertable u
-      JOIN follow_table f1 ON f1.userid1 = $1 AND f1.userid2 = u.userid
-      JOIN follow_table f2 ON f2.userid1 = u.userid AND f2.userid2 = $1
-      WHERE u.userid = ANY($2)
-    `, [userId, followingIdsText]);
+    const mutualIds = mutualRes.rows.map(u => u.mutualid);
 
-    const mutualFriends = mutualRes.rows.map(u => ({ id: u.userid, name: `User ${u.userid}` }));
+    const userData = await getUserData(mutualIds);
+
+    const mutualFriends = mutualIds.map(id => ({
+      id,
+      name: userData[id]?.username || `User ${id}`
+    }));
+
     res.json({ friends: mutualFriends });
   } catch (err) {
     console.error("Fetch mutual friends error:", err.message);
     res.status(500).json({ error: "Failed to fetch friends" });
   }
 });
+// Get pending hikes for a user (iscoming = false)
+app.get("/pending-hikes/:userId", async (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+  try {
+    const result = await pool.query(
+      `
+      SELECT 
+        h.hikeid,
+        h.plannerid,
+        p.trailid,
+        p.planned_at,
+        t.name,
+        t.location,
+        t.difficulty,
+        t.duration,
+        t.description
+      FROM hike h
+      JOIN planner_table p ON h.plannerid = p.plannerid
+      JOIN trail_table t ON p.trailid = t.trailid
+      WHERE h.userid = $1 AND h.iscoming = false
+      ORDER BY p.planned_at ASC
+      `,
+      [userId]
+    );
+    res.json({ pendingHikes: result.rows });
+  } catch (err) {
+    console.error("Error fetching pending hikes:", err.message);
+    res.status(500).json({ error: "Failed to fetch pending hikes" });
+  }
+});
+
+
+// Accept an invite
+app.post("/hike-accept", async (req, res) => {
+  const { hikeId } = req.body;
+  try {
+    await pool.query(
+      `UPDATE hike SET iscoming = true WHERE hikeid = $1`,
+      [hikeId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error accepting hike:", err.message);
+    res.status(500).json({ error: "Failed to accept hike" });
+  }
+});
+
+// Decline an invite
+app.post("/hike-decline", async (req, res) => {
+  const { hikeId } = req.body;
+  try {
+    await pool.query(
+      `DELETE FROM hike WHERE hikeid = $1`,
+      [hikeId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error declining hike:", err.message);
+    res.status(500).json({ error: "Failed to decline hike" });
+  }
+});
+
 
 // Protected route
 app.get("/protected", requireAuth(), async (req, res) => {
