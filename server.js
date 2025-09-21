@@ -402,7 +402,7 @@ app.post("/start-hike", async (req, res) => {
     // 2. Start hike: record start time in planner_table or completed_hike_table
     await pool.query(`
       UPDATE planner_table
-      SET started_at = NOW()
+      SET planned_at = NOW()
       WHERE plannerid = $1
     `, [plannerId]);
 
