@@ -382,14 +382,16 @@ app.post("/hike-decline", async (req, res) => {
 });
 
 // --- Start a hike (records start time) ---
+// --- Start a hike (records start time) ---
 app.post("/start-hike", async (req, res) => {
   const { plannerId, userId } = req.body;
-  if (!plannerId || !userId) return res.status(400).json({ error: "Missing plannerId or userId" });
+  if (!plannerId || !userId) 
+    return res.status(400).json({ error: "Missing plannerId or userId" });
 
   try {
-    // 1. Get trail duration from planner_table -> trail_table
+    // 1. Get planner info (trail duration and started_at)
     const { rows } = await pool.query(`
-      SELECT t.duration
+      SELECT t.duration, p.started_at
       FROM planner_table p
       JOIN trail_table t ON t.trailid = p.trailid
       WHERE p.plannerid = $1
@@ -397,12 +399,16 @@ app.post("/start-hike", async (req, res) => {
 
     if (!rows[0]) return res.status(404).json({ error: "Planner or trail not found" });
 
+    if (rows[0].started_at) {
+      return res.status(400).json({ error: "Hike already started" });
+    }
+
     const duration = rows[0].duration; // e.g., '02:30:00'
 
-    // 2. Start hike: record start time in planner_table or completed_hike_table
+    // 2. Start hike: record start time and mark as started
     await pool.query(`
       UPDATE planner_table
-      SET planned_at = NOW()
+      SET planned_at = NOW(), started_at = true
       WHERE plannerid = $1
     `, [plannerId]);
 
@@ -415,7 +421,7 @@ app.post("/start-hike", async (req, res) => {
         const client = await pool.connect();
         await client.query("BEGIN");
 
-        // Get planner info again (trailid)
+        // Get planner info again
         const { rows: plannerRows } = await client.query(
           "SELECT * FROM planner_table WHERE plannerid = $1",
           [plannerId]
@@ -425,10 +431,9 @@ app.post("/start-hike", async (req, res) => {
         const planner = plannerRows[0];
 
         // Insert into completed_hike_table
-        const { rows: completedRows } = await client.query(
+        await client.query(
           `INSERT INTO completed_hike_table (userid, trailid, date, timespan)
-           VALUES ($1, $2, NOW(), $3::interval)
-           RETURNING completedhikeid`,
+           VALUES ($1, $2, NOW(), $3::interval)`,
           [userId, planner.trailid, duration]
         );
 
@@ -450,7 +455,6 @@ app.post("/start-hike", async (req, res) => {
     res.status(500).json({ error: "Failed to start hike" });
   }
 });
-
 
 // --- Stop hike / calculate timespan ---
 app.post("/stop-hike", async (req, res) => {
