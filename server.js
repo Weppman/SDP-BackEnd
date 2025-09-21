@@ -392,7 +392,7 @@ app.post("/start-hike", async (req, res) => {
   try {
     // 1. Get planner info (trail duration and started_at)
     const { rows } = await pool.query(`
-      SELECT t.duration, p.has_started
+      SELECT t.duration::text AS duration, p.has_started
       FROM planner_table p
       JOIN trail_table t ON t.trailid = p.trailid
       WHERE p.plannerid = $1
