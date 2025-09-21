@@ -122,7 +122,7 @@ app.get("/completed-hikes/:userId", async (req, res) => {
         t.name,
         t.location,
         t.difficulty,
-        t.duration,
+        t.duration::text AS duration,  -- << convert interval to string
         t.description
       FROM completed_hike_table ch
       JOIN trail_table t ON ch.trailid = t.trailid
