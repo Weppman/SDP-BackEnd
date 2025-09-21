@@ -151,6 +151,7 @@ app.get("/upcoming-hikes/:userId", async (req, res) => {
         p.plannerid,
         p.trailid,
         p.planned_at,
+        p.started_at,
         t.name,
         t.location,
         t.difficulty,
