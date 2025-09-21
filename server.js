@@ -63,7 +63,7 @@ app.get("/", async (req, res) => {
     res.status(500).json({ error: "Database connection failed" });
   }
 });
-
+const hikeTimers = {};
 // Arbitrary SQL query (for testing)
 app.post("/query", async (req, res) => {
   const { sql } = req.body;
@@ -151,7 +151,7 @@ app.get("/upcoming-hikes/:userId", async (req, res) => {
         p.plannerid,
         p.trailid,
         p.planned_at,
-        p.started_at,
+        p.has_started,
         t.name,
         t.location,
         t.difficulty,
@@ -392,7 +392,7 @@ app.post("/start-hike", async (req, res) => {
   try {
     // 1. Get planner info (trail duration and started_at)
     const { rows } = await pool.query(`
-      SELECT t.duration, p.started_at
+      SELECT t.duration, p.has_started
       FROM planner_table p
       JOIN trail_table t ON t.trailid = p.trailid
       WHERE p.plannerid = $1
@@ -400,7 +400,7 @@ app.post("/start-hike", async (req, res) => {
 
     if (!rows[0]) return res.status(404).json({ error: "Planner or trail not found" });
 
-    if (rows[0].started_at) {
+    if (rows[0].has_started) {
       return res.status(400).json({ error: "Hike already started" });
     }
 
@@ -409,20 +409,19 @@ app.post("/start-hike", async (req, res) => {
     // 2. Start hike: record start time and mark as started
     await pool.query(`
       UPDATE planner_table
-      SET planned_at = NOW(), started_at = true
+      SET planned_at = NOW(), has_started = true
       WHERE plannerid = $1
     `, [plannerId]);
 
     // 3. Set a timeout to auto-stop hike
     const [hours, minutes, seconds] = duration.split(':').map(Number);
-    const ms = ((hours * 60 + minutes) * 60 + seconds) * 1000; // convert to milliseconds
+    const ms = ((hours * 60 + minutes) * 60 + seconds) * 1000;
 
-    setTimeout(async () => {
+    const timeoutId = setTimeout(async () => {
       try {
         const client = await pool.connect();
         await client.query("BEGIN");
 
-        // Get planner info again
         const { rows: plannerRows } = await client.query(
           "SELECT * FROM planner_table WHERE plannerid = $1",
           [plannerId]
@@ -431,25 +430,26 @@ app.post("/start-hike", async (req, res) => {
 
         const planner = plannerRows[0];
 
-        // Insert into completed_hike_table
         await client.query(
           `INSERT INTO completed_hike_table (userid, trailid, date, timespan)
-           VALUES ($1, $2, NOW(), $3::interval)`,
+          VALUES ($1, $2, NOW(), $3::interval)`,
           [userId, planner.trailid, duration]
         );
 
-        // Delete from hike and planner_table
         await client.query("DELETE FROM hike WHERE plannerid = $1", [plannerId]);
         await client.query("DELETE FROM planner_table WHERE plannerid = $1", [plannerId]);
 
         await client.query("COMMIT");
         client.release();
         console.log(`Auto-stopped hike ${plannerId} for user ${userId}`);
+
+        // Remove from timers
+        delete hikeTimers[plannerId];
       } catch (err) {
         console.error("Auto-stop hike error:", err);
       }
     }, ms);
-
+    hikeTimers[plannerId] = timeoutId;
     res.json({ success: true, message: `Hike started, will auto-stop in ${duration}` });
   } catch (err) {
     console.error(err);
@@ -458,16 +458,23 @@ app.post("/start-hike", async (req, res) => {
 });
 
 // --- Stop hike / calculate timespan ---
+// Stop hike route
 app.post("/stop-hike", async (req, res) => {
   const { plannerId, userId } = req.body;
   if (!plannerId || !userId) 
     return res.status(400).json({ error: "Missing plannerId or userId" });
 
+  // Clear the auto-stop timer if it exists
+  if (hikeTimers[plannerId]) {
+    clearTimeout(hikeTimers[plannerId]);
+    delete hikeTimers[plannerId];
+    console.log(`Manual stop: cleared auto-stop timer for planner ${plannerId}`);
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // 1. Get planner info (trailid and started_at)
     const { rows: plannerRows } = await client.query(
       "SELECT * FROM planner_table WHERE plannerid = $1",
       [plannerId]
@@ -477,16 +484,15 @@ app.post("/stop-hike", async (req, res) => {
 
     const planner = plannerRows[0];
 
-    if (!planner.planned_at) throw new Error("Hike has not been started");
+    if (!planner.has_started) throw new Error("Hike has not been started");
 
     const { rows: durationRows } = await client.query(
        "SELECT NOW() - $1::timestamp AS timespan",
       [planner.planned_at]
     );
 
-    const timespan = durationRows[0].timespan; // interval type
+    const timespan = durationRows[0].timespan;
 
-    // 3. Insert into completed_hike_table
     const { rows: completedRows } = await client.query(
       `INSERT INTO completed_hike_table (userid, trailid, date, timespan)
        VALUES ($1, $2, NOW(), $3::interval)
@@ -496,13 +502,11 @@ app.post("/stop-hike", async (req, res) => {
 
     const completedHikeId = completedRows[0].completedhikeid;
 
-    // 4. Remove from hike table (pending/upcoming)
     await client.query(
       "DELETE FROM hike WHERE plannerid = $1 AND userid = $2",
       [plannerId, userId]
     );
 
-    // 5. Optionally remove planner if no more participants
     const { rows: remaining } = await client.query(
       "SELECT COUNT(*) FROM hike WHERE plannerid = $1",
       [plannerId]
@@ -526,6 +530,7 @@ app.post("/stop-hike", async (req, res) => {
     client.release();
   }
 });
+
 
 // Protected route
 app.get("/protected", requireAuth(), async (req, res) => {
