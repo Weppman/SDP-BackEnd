@@ -450,7 +450,7 @@ app.post("/start-hike", async (req, res) => {
       }
     }, ms);
     hikeTimers[plannerId] = timeoutId;
-    res.json({ success: true, planned_at: new Date().toISOString(), message: `Hike started, will auto-stop in ${duration}` });
+    res.json({ success: true, planned_at: new Date().toISOString(), has_started: true, message: `Hike started, will auto-stop in ${duration}` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to start hike" });
