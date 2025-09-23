@@ -35,6 +35,31 @@ const pool = new Pool({
   max: 10
 });
 
+
+async function apiKeyMiddleware(req, res, next) {
+  const apiKey = req.headers["x-api-key"]; // read from header
+
+  if (!apiKey) {
+    return res.status(401).json({ error: "Missing API key" });
+  }
+
+  const { rows } = await pool.query(
+    "SELECT key FROM api_table WHERE key = $1",
+    [apiKey]
+  );
+
+  if (rows.length === 0) {
+    return res.status(403).json({ error: "Invalid API key" });
+  }
+
+  // store user info for downstream routes
+  req.userId = rows[0].userid;
+  next();
+}
+
+app.use(apiKeyMiddleware);
+
+
 // Test database connection on startup
 pool.on('connect', (client) => {
   console.log('Database connected successfully');

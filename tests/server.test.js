@@ -37,12 +37,15 @@ jest.mock("@clerk/clerk-sdk-node", () => {
 const request = require("supertest");
 const { app, pool } = require("../server");
 
+// API key we expect
+const API_KEY = "1234asdf";
+
 // ------------------------
 // 3. MOCK DATABASE
 // ------------------------
 beforeAll(() => {
   pool.query = jest.fn((sql, params) => {
-    // Mock GET / (assume it selects current time from DB)
+    // Mock GET /
     if (sql.includes("SELECT NOW()")) {
       return { rows: [{ now: new Date().toISOString() }] };
     }
@@ -52,11 +55,17 @@ beforeAll(() => {
       const uid = params[0];
       if (uid === "1") return { rows: [{ authid: "user_abc123" }] };
       if (uid === "2") return { rows: [{ authid: "user_xyz456" }] };
-      return { rows: [] }; // simulate missing authid
+      return { rows: [] };
     }
 
     // Mock /query endpoint
     if (sql.includes("SELECT 1")) return { rows: [{ num: 1 }] };
+
+    // Mock api key check
+    if (sql.includes("FROM api_table")) {
+      if (params[0] === API_KEY) return { rows: [{ userid: 999 }] }; // mock userId for key
+      return { rows: [] }; // invalid key
+    }
 
     return { rows: [] };
   });
@@ -72,26 +81,36 @@ describe("Express API", () => {
   });
 
   test("GET / should return current time", async () => {
-    const res = await request(app).get("/");
+    const res = await request(app)
+      .get("/")
+      .set("x-api-key", API_KEY); // add API key
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty("time");
   });
 
-
   test("POST /query should return error if sql missing", async () => {
-    const res = await request(app).post("/query").send({});
+    const res = await request(app)
+      .post("/query")
+      .set("x-api-key", API_KEY) // add API key
+      .send({});
     expect(res.statusCode).toBe(400);
     expect(res.body).toHaveProperty("error", "SQL query is required");
   });
 
   test("POST /query should return rows for valid SQL", async () => {
-    const res = await request(app).post("/query").send({ sql: "SELECT 1 as num" });
+    const res = await request(app)
+      .post("/query")
+      .set("x-api-key", API_KEY) // add API key
+      .send({ sql: "SELECT 1 as num" });
     expect(res.statusCode).toBe(200);
     expect(res.body.rows[0]).toHaveProperty("num", 1);
   });
 
   test("POST /uid returns user data for valid uidArr", async () => {
-    const res = await request(app).post("/uid").send({ uidArr: ["1", "2"] });
+    const res = await request(app)
+      .post("/uid")
+      .set("x-api-key", API_KEY) // add API key
+      .send({ uidArr: ["1", "2"] });
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty("userDatas");
@@ -113,5 +132,17 @@ describe("Express API", () => {
       username: "bob456",
       imageUrl: "http://example.com/bob.png",
     });
+  });
+
+  test("should reject requests with no API key", async () => {
+    const res = await request(app).get("/");
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  test("should reject requests with wrong API key", async () => {
+    const res = await request(app).get("/").set("x-api-key", "wrong-key");
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toHaveProperty("error");
   });
 });
