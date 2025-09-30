@@ -499,6 +499,27 @@ app.post("/start-hike", async (req, res) => {
           [userId, planner.trailid, duration]
         );
 
+        const { rows } = await pool.query(
+          `SELECT achievements FROM trail_table WHERE trailid = $1`,
+          [planner.trailId]
+        );
+
+        const achievements = rows[0]?.achievements || [];
+
+        for (const achievementId of achievements) {
+          await pool.query(
+            `
+            INSERT INTO achievementsuserid_table (userid, achievementid, currentnumber)
+            VALUES ($1, $2, 1)
+            ON CONFLICT (userid, achievementid)
+            DO UPDATE SET currentnumber = achievementsuserid_table.currentnumber + 1
+            `,
+            [userId, achievementId]
+          );
+        }
+        
+
+
         await client.query("DELETE FROM hike WHERE plannerid = $1", [
           plannerId,
         ]);
@@ -573,6 +594,25 @@ app.post("/stop-hike", async (req, res) => {
        RETURNING completedhikeid`,
       [userId, planner.trailid, timespan]
     );
+
+    const { rows } = await pool.query(
+      `SELECT achievements FROM trail_table WHERE trailid = $1`,
+      [planner.trailid]
+    );
+
+    const achievements = rows[0]?.achievements || [];
+    console.log(achievements);
+    for (const achievementId of achievements) {
+      await pool.query(
+         `
+        INSERT INTO achievementsuserid_table (userid, achievementid, currentnumber)
+        VALUES ($1, $2, 1)
+        ON CONFLICT (userid, achievementid)
+        DO UPDATE SET currentnumber = achievementsuserid_table.currentnumber + 1
+        `,
+        [userId, achievementId]
+      );
+    }
 
     const completedHikeId = completedRows[0].completedhikeid;
 
