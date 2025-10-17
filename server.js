@@ -1099,6 +1099,29 @@ app.get("/users/random", async (req, res) => {
   }
 });
 
+app.get("/activity-feed", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT * FROM activity_feed_table ORDER BY dateposted DESC LIMIT 20"
+    );
+
+    const uidArr = rows.map(r => r.userid);
+
+    const userDatas = await getUserData(uidArr);
+
+    const feedWithNames = rows.map(item => ({
+      ...item,
+      name: userDatas[item.userid]?.firstName || userDatas[item.userid]?.username || item.userid
+    }));
+
+    res.json({ rows: feedWithNames });
+  } catch (err) {
+    console.error("Error fetching activity feed:", err);
+    res.status(500).json({ error: "Failed to fetch activity feed" });
+  }
+});
+
+
 app.post("/follow/:id", async (req, res) => {
   const followerId = req.body.followerId; // logged-in user's internal ID
   const followeeId = parseInt(req.params.id);
@@ -1175,5 +1198,8 @@ if (process.env.NODE_ENV !== "test") {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
+
+
+
 
 module.exports = { app, pool };
