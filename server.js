@@ -440,7 +440,6 @@ app.post("/hike-decline", async (req, res) => {
 });
 
 // --- Start a hike (records start time) ---
-// --- Start a hike (records start time) ---
 app.post("/start-hike", async (req, res) => {
   const { plannerId, userId } = req.body;
   if (!plannerId || !userId)
