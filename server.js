@@ -1105,13 +1105,34 @@ app.get("/activity-feed", async (req, res) => {
       "SELECT * FROM activity_feed_table ORDER BY dateposted DESC LIMIT 20"
     );
 
-    const uidArr = rows.map(r => r.userid);
+    const { rows: userRows } = await pool.query(
+      "SELECT userid, authid FROM usertable WHERE userid = ANY($1::int[])",
+      [rows.map(r => r.userid)]
+    );
 
-    const userDatas = await getUserData(uidArr);
+    const authMap = {};
+    userRows.forEach(u => {
+      authMap[u.userid] = u.authid;
+    });
+
+    const userDatas = {};
+    for (const [userid, authid] of Object.entries(authMap)) {
+      try {
+        const user = await clerkClient.users.getUser(authid);
+        userDatas[userid] = {
+          firstName: user.firstName,
+          username: user.username,
+          imageUrl: user.imageUrl,
+        };
+      } catch (err) {
+        console.error("Error fetching Clerk user", authid, err);
+      }
+    }
 
     const feedWithNames = rows.map(item => ({
       ...item,
-      name: userDatas[item.userid]?.firstName || userDatas[item.userid]?.username || item.userid
+      name: userDatas[item.userid]?.firstName || userDatas[item.userid]?.username || item.userid,
+      imageUrl: userDatas[item.userid]?.imageUrl || null
     }));
 
     res.json({ rows: feedWithNames });
@@ -1120,6 +1141,7 @@ app.get("/activity-feed", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch activity feed" });
   }
 });
+
 
 
 app.post("/follow/:id", async (req, res) => {
