@@ -159,6 +159,7 @@ app.get("/completed-hikes/:userId", async (req, res) => {
         ch.trailid,
         ch.date,
         ch.timespan::text AS timespan,
+        ch.hikenotes,
         t.name,
         t.location,
         t.difficulty,
@@ -218,27 +219,27 @@ app.get("/upcoming-hikes/:userId", async (req, res) => {
 });
 
 // Update completed hike timespan (FIXED)
-app.post("/update-timespan", async (req, res) => {
-  const { completedHikeId, timespan } = req.body;
+app.post("/update-hike", async (req, res) => {
+  const { completedHikeId, timespan, hikenotes } = req.body;
   if (!completedHikeId || !timespan)
     return res
       .status(400)
-      .json({ error: "Missing completedHikeId or timespan" });
+      .json({ error: "Missing completedHikeId or timespan or hikenotes" });
 
   try {
     const timespanValue = Array.isArray(timespan) ? timespan[0] : timespan;
     await pool.query(
       `
       UPDATE completed_hike_table
-      SET timespan = $1::interval
-      WHERE completedhikeid = $2
+      SET timespan = $1::interval, hikenotes = $2
+      WHERE completedhikeid = $3
     `,
-      [timespanValue, completedHikeId]
+      [timespanValue, hikenotes,completedHikeId]
     );
     res.json({ success: true });
   } catch (err) {
-    console.error("Update timespan error:", err.message);
-    res.status(500).json({ error: "Failed to update timespan" });
+    console.error("Update error:", err.message);
+    res.status(500).json({ error: "Failed to update" });
   }
 });
 
@@ -444,7 +445,7 @@ app.post("/start-hike", async (req, res) => {
   const { plannerId, userId } = req.body;
   if (!plannerId || !userId)
     return res.status(400).json({ error: "Missing plannerId or userId" });
-
+  
   try {
     // 1. Get planner info (trail duration and started_at)
     const { rows } = await pool.query(
@@ -643,6 +644,83 @@ app.post("/stop-hike", async (req, res) => {
     client.release();
   }
 });
+
+app.delete("/delete-upcoming-hike", async (req, res) => {
+  const { plannerId, userID } = req.body;  // read from request body
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: deletedRows } = await client.query(
+      "DELETE FROM hike WHERE plannerid = $1 AND userid = $2 RETURNING *",
+      [plannerId, userID]
+    );
+
+    if (deletedRows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Hike not found for this user" });
+    }
+
+    const { rows: remainingRows } = await client.query(
+      "SELECT COUNT(*) FROM hike WHERE plannerid = $1",
+      [plannerId]
+    );
+
+    if (parseInt(remainingRows[0].count, 10) === 0) {
+      await client.query("DELETE FROM planner_table WHERE plannerid = $1", [
+        plannerId,
+      ]);
+    }
+
+    await client.query("COMMIT");
+    res.json({ success: true, message: "Upcoming hike entry deleted" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error deleting upcoming hike:", err);
+    res.status(500).json({ error: "Failed to delete upcoming hike" });
+  } finally {
+    client.release();
+  }
+});
+
+
+
+app.post("/pin-completed-hike", async (req, res) => {
+  const { completedHikeId, pin, userId } = req.body;
+
+  try {
+    // Fetch current pinned status
+    const { rows: existing } = await pool.query(
+      `SELECT pinnedhikes FROM completed_hike_table WHERE completedhikeid = $1 AND userid = $2`,
+      [completedHikeId, userId]
+    );
+
+    if (existing.length === 0) return res.status(404).json({ error: "Completed hike not found" });
+
+    if (pin) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) FROM completed_hike_table WHERE userid = $1 AND pinnedhikes = true`,
+        [userId]
+      );
+      if (parseInt(rows[0].count) >= 3) {
+        return res.status(400).json({ error: "You can only pin 3 hikes at a time" });
+      }
+    }
+
+    await pool.query(
+      `UPDATE completed_hike_table SET pinnedhikes = $1 WHERE completedhikeid = $2 AND userid = $3`,
+      [pin, completedHikeId, userId]
+    );
+
+    res.json({ success: true, pinned: pin });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to toggle pin" });
+  }
+});
+
+
 
 async function getFriends(userId) {
   // Step 1: fetch all the ids this user follows
