@@ -42,8 +42,6 @@ const pool = new Pool({
   max: 10,
 });
 
-
-
 async function apiKeyMiddleware(req, res, next) {
   const apiKey = req.headers["x-api-key"]; // read from header
 
@@ -1116,23 +1114,24 @@ app.get("/activity-feed", async (req, res) => {
     });
 
     const userDatas = {};
-    for (const [userid, authid] of Object.entries(authMap)) {
-      try {
-        const user = await clerkClient.users.getUser(authid);
-        userDatas[userid] = {
-          firstName: user.firstName,
-          username: user.username,
-          imageUrl: user.imageUrl,
-        };
-      } catch (err) {
-        console.error("Error fetching Clerk user", authid, err);
-      }
-    }
+    await Promise.all(
+      Object.entries(authMap).map(async ([userid, authid]) => {
+        try {
+          const user = await clerkClient.users.getUser(authid);
+          userDatas[userid] = {
+            firstName: user.firstName,
+            username: user.username,
+            imageUrl: user.imageUrl,
+          };
+        } catch (err) {
+          console.error("Error fetching Clerk user", authid, err);
+        }
+      })
+    );
 
     const feedWithNames = rows.map(item => ({
       ...item,
-      name: userDatas[item.userid]?.firstName || userDatas[item.userid]?.username || item.userid,
-      imageUrl: userDatas[item.userid]?.imageUrl || null
+      name: userDatas[item.userid]?.firstName || userDatas[item.userid]?.username || item.userid
     }));
 
     res.json({ rows: feedWithNames });
@@ -1141,8 +1140,6 @@ app.get("/activity-feed", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch activity feed" });
   }
 });
-
-
 
 app.post("/follow/:id", async (req, res) => {
   const followerId = req.body.followerId; // logged-in user's internal ID
