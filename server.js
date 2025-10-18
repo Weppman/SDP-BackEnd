@@ -157,6 +157,7 @@ app.get("/completed-hikes/:userId", async (req, res) => {
         ch.trailid,
         ch.date,
         ch.timespan::text AS timespan,
+        ch.pinnedhikes
         ch.hikenotes,
         t.name,
         t.location,
