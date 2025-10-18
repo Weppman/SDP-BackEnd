@@ -42,8 +42,6 @@ const pool = new Pool({
   max: 10,
 });
 
-
-
 async function apiKeyMiddleware(req, res, next) {
   const apiKey = req.headers["x-api-key"]; // read from header
 
@@ -67,15 +65,13 @@ async function apiKeyMiddleware(req, res, next) {
 
 app.use(apiKeyMiddleware);
 
-
 // Test database connection on startup
-pool.on('connect', (client) => {
-  console.log('Database connected successfully');
+pool.on("connect", (client) => {
+  console.log("Database connected successfully");
 });
 
 pool.on("connect", () => console.log("Database connected successfully"));
 pool.on("error", (err) => console.error("Database connection error:", err));
-
 
 // Utility: format interval[] for JSON response
 function formatTimespan(timespan) {
@@ -161,6 +157,7 @@ app.get("/completed-hikes/:userId", async (req, res) => {
         ch.trailid,
         ch.date,
         ch.timespan::text AS timespan,
+        ch.hikenotes,
         t.name,
         t.location,
         t.difficulty,
@@ -220,27 +217,27 @@ app.get("/upcoming-hikes/:userId", async (req, res) => {
 });
 
 // Update completed hike timespan (FIXED)
-app.post("/update-timespan", async (req, res) => {
-  const { completedHikeId, timespan } = req.body;
+app.post("/update-hike", async (req, res) => {
+  const { completedHikeId, timespan, hikenotes } = req.body;
   if (!completedHikeId || !timespan)
     return res
       .status(400)
-      .json({ error: "Missing completedHikeId or timespan" });
+      .json({ error: "Missing completedHikeId or timespan or hikenotes" });
 
   try {
     const timespanValue = Array.isArray(timespan) ? timespan[0] : timespan;
     await pool.query(
       `
       UPDATE completed_hike_table
-      SET timespan = $1::interval
-      WHERE completedhikeid = $2
+      SET timespan = $1::interval, hikenotes = $2
+      WHERE completedhikeid = $3
     `,
-      [timespanValue, completedHikeId]
+      [timespanValue, hikenotes, completedHikeId]
     );
     res.json({ success: true });
   } catch (err) {
-    console.error("Update timespan error:", err.message);
-    res.status(500).json({ error: "Failed to update timespan" });
+    console.error("Update error:", err.message);
+    res.status(500).json({ error: "Failed to update" });
   }
 });
 
@@ -441,7 +438,6 @@ app.post("/hike-decline", async (req, res) => {
 });
 
 // --- Start a hike (records start time) ---
-// --- Start a hike (records start time) ---
 app.post("/start-hike", async (req, res) => {
   const { plannerId, userId } = req.body;
   if (!plannerId || !userId)
@@ -519,8 +515,6 @@ app.post("/start-hike", async (req, res) => {
             [userId, achievementId]
           );
         }
-        
-
 
         await client.query("DELETE FROM hike WHERE plannerid = $1", [
           plannerId,
@@ -606,7 +600,7 @@ app.post("/stop-hike", async (req, res) => {
     console.log(achievements);
     for (const achievementId of achievements) {
       await pool.query(
-         `
+        `
         INSERT INTO achievementsuserid_table (userid, achievementid, currentnumber)
         VALUES ($1, $2, 1)
         ON CONFLICT (userid, achievementid)
@@ -643,6 +637,82 @@ app.post("/stop-hike", async (req, res) => {
     res.status(500).json({ error: "Failed to stop hike" });
   } finally {
     client.release();
+  }
+});
+
+app.delete("/delete-upcoming-hike", async (req, res) => {
+  const { plannerId, userID } = req.body; // read from request body
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: deletedRows } = await client.query(
+      "DELETE FROM hike WHERE plannerid = $1 AND userid = $2 RETURNING *",
+      [plannerId, userID]
+    );
+
+    if (deletedRows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Hike not found for this user" });
+    }
+
+    const { rows: remainingRows } = await client.query(
+      "SELECT COUNT(*) FROM hike WHERE plannerid = $1",
+      [plannerId]
+    );
+
+    if (parseInt(remainingRows[0].count, 10) === 0) {
+      await client.query("DELETE FROM planner_table WHERE plannerid = $1", [
+        plannerId,
+      ]);
+    }
+
+    await client.query("COMMIT");
+    res.json({ success: true, message: "Upcoming hike entry deleted" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Error deleting upcoming hike:", err);
+    res.status(500).json({ error: "Failed to delete upcoming hike" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/pin-completed-hike", async (req, res) => {
+  const { completedHikeId, pin, userId } = req.body;
+
+  try {
+    // Fetch current pinned status
+    const { rows: existing } = await pool.query(
+      `SELECT pinnedhikes FROM completed_hike_table WHERE completedhikeid = $1 AND userid = $2`,
+      [completedHikeId, userId]
+    );
+
+    if (existing.length === 0)
+      return res.status(404).json({ error: "Completed hike not found" });
+
+    if (pin) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) FROM completed_hike_table WHERE userid = $1 AND pinnedhikes = true`,
+        [userId]
+      );
+      if (parseInt(rows[0].count) >= 3) {
+        return res
+          .status(400)
+          .json({ error: "You can only pin 3 hikes at a time" });
+      }
+    }
+
+    await pool.query(
+      `UPDATE completed_hike_table SET pinnedhikes = $1 WHERE completedhikeid = $2 AND userid = $3`,
+      [pin, completedHikeId, userId]
+    );
+
+    res.json({ success: true, pinned: pin });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to toggle pin" });
   }
 });
 
@@ -1022,7 +1092,9 @@ app.get("/users/search", async (req, res) => {
     // Enrich with your internal user ids
     const users = await Promise.all(
       clerkUsers
-        .filter((u) => u.username?.toLowerCase() === username.toLowerCase())
+        .filter((u) =>
+          u.username?.toLowerCase().startsWith(username.toLowerCase())
+        )
         .map(async (user) => {
           const { rows } = await pool.query(
             "SELECT userid FROM usertable WHERE authid = $1",
@@ -1107,32 +1179,36 @@ app.get("/activity-feed", async (req, res) => {
 
     const { rows: userRows } = await pool.query(
       "SELECT userid, authid FROM usertable WHERE userid = ANY($1::int[])",
-      [rows.map(r => r.userid)]
+      [rows.map((r) => r.userid)]
     );
 
     const authMap = {};
-    userRows.forEach(u => {
+    userRows.forEach((u) => {
       authMap[u.userid] = u.authid;
     });
 
     const userDatas = {};
-    for (const [userid, authid] of Object.entries(authMap)) {
-      try {
-        const user = await clerkClient.users.getUser(authid);
-        userDatas[userid] = {
-          firstName: user.firstName,
-          username: user.username,
-          imageUrl: user.imageUrl,
-        };
-      } catch (err) {
-        console.error("Error fetching Clerk user", authid, err);
-      }
-    }
+    await Promise.all(
+      Object.entries(authMap).map(async ([userid, authid]) => {
+        try {
+          const user = await clerkClient.users.getUser(authid);
+          userDatas[userid] = {
+            firstName: user.firstName,
+            username: user.username,
+            imageUrl: user.imageUrl,
+          };
+        } catch (err) {
+          console.error("Error fetching Clerk user", authid, err);
+        }
+      })
+    );
 
-    const feedWithNames = rows.map(item => ({
+    const feedWithNames = rows.map((item) => ({
       ...item,
-      name: userDatas[item.userid]?.firstName || userDatas[item.userid]?.username || item.userid,
-      imageUrl: userDatas[item.userid]?.imageUrl || null
+      name:
+        userDatas[item.userid]?.firstName ||
+        userDatas[item.userid]?.username ||
+        item.userid,
     }));
 
     res.json({ rows: feedWithNames });
@@ -1141,8 +1217,6 @@ app.get("/activity-feed", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch activity feed" });
   }
 });
-
-
 
 app.post("/follow/:id", async (req, res) => {
   const followerId = req.body.followerId; // logged-in user's internal ID
@@ -1208,6 +1282,65 @@ app.delete("/follow/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to unfollow user" });
   }
 });
+app.get("/pinned-hikes/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT 
+        ch.completedhikeid,
+        ch.trailid,
+        ch.date,
+        ch.timespan::text AS timespan,
+        ch.hikenotes,
+        t.name AS trailName,
+        t.location,
+        t.difficulty,
+        t.duration::text AS duration,
+        t.description,
+        t.coordinates
+      FROM completed_hike_table ch
+      JOIN trail_table t ON ch.trailid = t.trailid
+      WHERE ch.userid = $1 AND ch.pinnedhikes = true
+      ORDER BY ch.completedhikeid ASC
+      `,
+      [userId]
+    );
+
+    res.json({ success: true, pinnedHikes: rows });
+  } catch (err) {
+    console.error("Error fetching pinned hikes:", err);
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch pinned hikes" });
+  }
+});
+// Unpin a hike
+app.put("/unpin-hike/:completedHikeId", async (req, res) => {
+  const { completedHikeId } = req.params;
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE completed_hike_table
+       SET pinnedhikes = false
+       WHERE completedhikeid = $1
+       RETURNING *`,
+      [completedHikeId]
+    );
+
+    if (rows.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Hike not found" });
+    }
+
+    res.json({ success: true, unpinnedHike: rows[0] });
+  } catch (err) {
+    console.error("Error unpinning hike:", err);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+});
 
 // Protected route
 app.get("/protected", requireAuth(), async (req, res) => {
@@ -1220,8 +1353,5 @@ if (process.env.NODE_ENV !== "test") {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
-
-
-
 
 module.exports = { app, pool };

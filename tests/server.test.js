@@ -30,12 +30,22 @@ jest.mock("@clerk/clerk-sdk-node", () => ({
       }),
       getUserList: jest.fn(async ({ query }) => {
         const allUsers = [
-          { id: "user_abc123", username: "alice123", imageUrl: "http://example.com/alice.png" },
-          { id: "user_xyz456", username: "bob456", imageUrl: "http://example.com/bob.png" },
+          {
+            id: "user_abc123",
+            username: "alice123",
+            imageUrl: "http://example.com/alice.png",
+          },
+          {
+            id: "user_xyz456",
+            username: "bob456",
+            imageUrl: "http://example.com/bob.png",
+          },
         ];
-        
+
         if (query) {
-          return allUsers.filter(u => u.username.toLowerCase().includes(query.toLowerCase()));
+          return allUsers.filter((u) =>
+            u.username.toLowerCase().includes(query.toLowerCase())
+          );
         }
         return allUsers;
       }),
@@ -59,12 +69,10 @@ const authRequest = (r) => r.set("x-api-key", API_KEY);
 beforeEach(() => {
   pool.query = jest.fn(async (sql, params) => {
     const sqlLower = sql.toLowerCase();
-    
+
     // API key check
     if (sql.includes("FROM api_table")) {
-      return params[0] === API_KEY
-        ? { rows: [{ userid: 999 }] }
-        : { rows: [] };
+      return params[0] === API_KEY ? { rows: [{ userid: 999 }] } : { rows: [] };
     }
 
     // Current timestamp
@@ -112,50 +120,62 @@ beforeEach(() => {
     if (sql.includes("goal_table")) {
       // INSERT new goal
       if (sqlLower.includes("insert into goal_table")) {
-        return { 
-          rows: [{ 
-            id: 101, 
-            title: params[1], 
-            description: params[2], 
-            done: false 
-          }] 
+        return {
+          rows: [
+            {
+              id: 101,
+              title: params[1],
+              description: params[2],
+              done: false,
+            },
+          ],
         };
       }
-      
+
       // UPDATE goal - mark as done
-      if (sqlLower.includes("update goal_table") && sqlLower.includes("set done = true")) {
+      if (
+        sqlLower.includes("update goal_table") &&
+        sqlLower.includes("set done = true")
+      ) {
         // Server query: UPDATE goal_table SET done = true WHERE gid = $1 AND userid = $2
         // params[0] = goalId, params[1] = userId
         if (params[0] === "101" && params[1] === "1") {
-          return { 
-            rows: [{ 
-              id: 101, 
-              title: "Personal Goal 1", 
-              description: "Desc A", 
-              done: true 
-            }] 
+          return {
+            rows: [
+              {
+                id: 101,
+                title: "Personal Goal 1",
+                description: "Desc A",
+                done: true,
+              },
+            ],
           };
         }
         return { rows: [] }; // Goal not found
       }
-      
+
       // UPDATE goal - edit title/description
-      if (sqlLower.includes("update goal_table") && sqlLower.includes("set name")) {
+      if (
+        sqlLower.includes("update goal_table") &&
+        sqlLower.includes("set name")
+      ) {
         // Server query: UPDATE goal_table SET name = $1, description = $2 WHERE gid = $3 AND userid = $4
         // params[0] = title, params[1] = description, params[2] = goalId, params[3] = userId
         if (params[2] === "101" && params[3] === "1") {
-          return { 
-            rows: [{ 
-              id: 101, 
-              title: params[0], 
-              description: params[1], 
-              done: false 
-            }] 
+          return {
+            rows: [
+              {
+                id: 101,
+                title: params[0],
+                description: params[1],
+                done: false,
+              },
+            ],
           };
         }
         return { rows: [] }; // Goal not found
       }
-      
+
       // DELETE goal
       if (sqlLower.includes("delete from goal_table")) {
         // Server query: DELETE FROM goal_table WHERE gid = $1 AND userid = $2
@@ -165,14 +185,24 @@ beforeEach(() => {
         }
         return { rows: [] }; // Goal not found
       }
-      
+
       // SELECT goals for user
       if (sqlLower.includes("select") && sqlLower.includes("where userid")) {
         if (params[0] === "1") {
           return {
             rows: [
-              { id: 201, title: "Personal Goal 1", description: "Desc A", done: false },
-              { id: 202, title: "Personal Goal 2", description: "Desc B", done: false },
+              {
+                id: 201,
+                title: "Personal Goal 1",
+                description: "Desc A",
+                done: false,
+              },
+              {
+                id: 202,
+                title: "Personal Goal 2",
+                description: "Desc B",
+                done: false,
+              },
             ],
           };
         }
@@ -184,21 +214,21 @@ beforeEach(() => {
     if (sql.includes("achievements_table")) {
       return {
         rows: [
-          { 
-            id: 101, 
-            title: "Global Goal 1", 
-            description: "Global Desc 1", 
-            target: 10, 
+          {
+            id: 101,
+            title: "Global Goal 1",
+            description: "Global Desc 1",
+            target: 10,
             current: 5,
-            source: "global"
+            source: "global",
           },
-          { 
-            id: 102, 
-            title: "Global Goal 2", 
-            description: "Global Desc 2", 
-            target: 20, 
+          {
+            id: 102,
+            title: "Global Goal 2",
+            description: "Global Desc 2",
+            target: 20,
             current: 8,
-            source: "global"
+            source: "global",
           },
         ],
       };
@@ -218,11 +248,11 @@ beforeEach(() => {
     if (sql.includes("FROM usertable") && !sql.includes("WHERE authid")) {
       if (sqlLower.includes("order by random()")) {
         // Random users query
-        return { 
+        return {
           rows: [
             { authid: "user_abc123", userid: 1 },
-            { authid: "user_xyz456", userid: 2 }
-          ] 
+            { authid: "user_xyz456", userid: 2 },
+          ],
         };
       }
       // Generic user table query
@@ -255,13 +285,19 @@ describe("Express API", () => {
   });
 
   test("POST /query with valid SQL returns rows", async () => {
-    const res = await authRequest(request(app).post("/query").send({ sql: "SELECT 1 as num" }));
+    const res = await authRequest(
+      request(app).post("/query").send({ sql: "SELECT 1 as num" })
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.rows[0]).toHaveProperty("num", 1);
   });
 
   test("POST /uid returns correct user data", async () => {
-    const res = await authRequest(request(app).post("/uid").send({ uidArr: ["1", "2"] }));
+    const res = await authRequest(
+      request(app)
+        .post("/uid")
+        .send({ uidArr: ["1", "2"] })
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.userDatas["1"]).toMatchObject({
       id: "user_abc123",
@@ -283,13 +319,19 @@ describe("Express API", () => {
 
   test("rejects requests with no or wrong API key", async () => {
     expect((await request(app).get("/")).statusCode).toBe(401);
-    expect((await request(app).get("/").set("x-api-key", "wrong-key")).statusCode).toBe(403);
+    expect(
+      (await request(app).get("/").set("x-api-key", "wrong-key")).statusCode
+    ).toBe(403);
   });
 
   describe("Profile endpoints", () => {
     test("GET /profile/:id/friends returns friends", async () => {
       const res = await authRequest(request(app).get("/profile/1/friends"));
-      expect(res.body[0]).toMatchObject({ id: "2", firstName: "Bob", lastName: "B" });
+      expect(res.body[0]).toMatchObject({
+        id: "2",
+        firstName: "Bob",
+        lastName: "B",
+      });
     });
 
     test("GET /profile/goals/:userId returns personal goals", async () => {
@@ -298,13 +340,17 @@ describe("Express API", () => {
     });
 
     test("GET /profile/global-goals/:userId returns global goals", async () => {
-      const res = await authRequest(request(app).get("/profile/global-goals/1"));
+      const res = await authRequest(
+        request(app).get("/profile/global-goals/1")
+      );
       expect(res.body[0]).toHaveProperty("id", 101);
       expect(res.body[1]).toHaveProperty("id", 102);
     });
 
     test("GET /profile/completed-hikes/:id returns hikes and trails", async () => {
-      const res = await authRequest(request(app).get("/profile/completed-hikes/1"));
+      const res = await authRequest(
+        request(app).get("/profile/completed-hikes/1")
+      );
       expect(res.body.completed_hike_table[0]).toHaveProperty("hikeId", 1);
       expect(res.body.trail[0]).toHaveProperty("trailId", 101);
     });
@@ -312,50 +358,66 @@ describe("Express API", () => {
 
   describe("Follow endpoints", () => {
     test("POST /follow/:id follows user", async () => {
-      const res = await authRequest(request(app).post("/follow/2").send({ followerId: 1 }));
+      const res = await authRequest(
+        request(app).post("/follow/2").send({ followerId: 1 })
+      );
       expect(res.body).toHaveProperty("message", "Followed successfully");
     });
 
     test("DELETE /follow/:id unfollows user", async () => {
-      const res = await authRequest(request(app).delete("/follow/2").send({ followerId: 1 }));
+      const res = await authRequest(
+        request(app).delete("/follow/2").send({ followerId: 1 })
+      );
       expect(res.body).toHaveProperty("message", "Unfollowed successfully");
     });
   });
 
   describe("Goal modification endpoints", () => {
     test("PUT /profile/mark-done/:goalId/:userId marks goal", async () => {
-      const res = await authRequest(request(app).put("/profile/mark-done/101/1"));
+      const res = await authRequest(
+        request(app).put("/profile/mark-done/101/1")
+      );
       expect(res.body).toHaveProperty("message", "Goal marked as done");
     });
 
     test("POST /profile/add-goal/:id adds goal", async () => {
       const res = await authRequest(
-        request(app).post("/profile/add-goal/1").send({ title: "New Goal", description: "Do something" })
+        request(app)
+          .post("/profile/add-goal/1")
+          .send({ title: "New Goal", description: "Do something" })
       );
       expect(res.body.goal).toHaveProperty("id", 101);
     });
 
     test("PUT /profile/edit-goal/:goalId/:id edits goal", async () => {
       const res = await authRequest(
-        request(app).put("/profile/edit-goal/101/1").send({ title: "Updated Goal", description: "Updated description" })
+        request(app)
+          .put("/profile/edit-goal/101/1")
+          .send({ title: "Updated Goal", description: "Updated description" })
       );
       expect(res.body.goal).toHaveProperty("id", 101);
     });
 
     test("DELETE /profile/edit-goal/:goalId/:userId deletes goal", async () => {
-      const res = await authRequest(request(app).delete("/profile/edit-goal/101/1"));
+      const res = await authRequest(
+        request(app).delete("/profile/edit-goal/101/1")
+      );
       expect(res.body).toHaveProperty("deletedGoalId", 101);
     });
   });
 
   describe("Users endpoints", () => {
     test("GET /users/search returns users", async () => {
-      const res = await authRequest(request(app).get("/users/search").query({ username: "alice123" }));
+      const res = await authRequest(
+        request(app).get("/users/search").query({ username: "alice123" })
+      );
       expect(res.body.users[0]).toHaveProperty("id", 1);
     });
 
     test("GET /users/random returns random users", async () => {
-      const res = await authRequest(request(app).get("/users/random?currentUserId=1&limit=2"));
+      const res = await authRequest(
+        request(app).get("/users/random?currentUserId=1&limit=2")
+      );
       expect(res.body.users.length).toBeGreaterThan(0);
     });
   });
